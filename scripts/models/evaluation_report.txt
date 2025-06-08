@@ -1,0 +1,14 @@
+Classification Report:
+              precision    recall  f1-score   support
+
+       Awake       1.00      1.00      1.00       200
+      Drowsy       1.00      1.00      1.00       200
+
+    accuracy                           1.00       400
+   macro avg       1.00      1.00      1.00       400
+weighted avg       1.00      1.00      1.00       400
+
+Confusion Matrix:
+[[200   0]
+ [  0 200]]
+Weighted F1 Score: 1.0

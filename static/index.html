@@ -1,0 +1,204 @@
+<!-- <!DOCTYPE html> -->
+<!-- <html>
+<head>
+    <title>Driver Drowsiness Detection</title>
+</head>
+<body>
+    <h2>Driver Drowsiness Detection</h2>
+    <video id="video" width="320" height="240" autoplay></video>
+    <p>Status: <span id="status">Loading...</span></p>
+    <p>Confidence: <span id="confidence">0%</span></p>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusText = document.getElementById('status');
+        const confidenceText = document.getElementById('confidence');
+
+        // Access webcam
+        navigator.mediaDevices.getUserMedia({video: true})
+            .then(stream => video.srcObject = stream)
+            .catch(err => alert("Cannot access webcam: " + err));
+
+        function captureFrame() {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg');
+        }
+
+        async function sendFrame() {
+            const dataURL = captureFrame();
+            // Convert base64 to blob
+            const res = await fetch(dataURL);
+            const blob = await res.blob();
+
+            const formData = new FormData();
+            formData.append('image', blob, 'frame.jpg');
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                statusText.innerText = data.status;
+                confidenceText.innerText = data.confidence.toFixed(1) + '%';
+
+                if(data.status === 'Drowsy'){
+                    alert("ALERT! Driver is drowsy!");
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        // Send frame every 2 seconds
+        setInterval(sendFrame, 2000);
+    </script>
+</body>
+</html> -->
+
+
+<!-- <!DOCTYPE html> -->
+<!-- <!DOCTYPE html> -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drowsiness Detection</title>
+<style>
+  body { font-family: Arial, sans-serif; text-align: center; margin-top: 20px; }
+  video { border: 1px solid #ccc; border-radius: 8px; }
+  #status { font-size: 1.5rem; margin-top: 10px; }
+  button { padding: 10px 20px; margin: 10px; font-size: 1rem; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<h1>Driver Drowsiness Detection</h1>
+
+<video id="video" width="320" height="240" autoplay muted></video>
+<div id="status">Status: --</div>
+<div id="confidence">Confidence: --</div>
+
+<button id="start-btn">Start</button>
+<button id="stop-btn" disabled>Stop</button>
+
+<audio id="beep-sound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+<script>
+  const video = document.getElementById('video');
+  const statusDiv = document.getElementById('status');
+  const confidenceDiv = document.getElementById('confidence');
+  const beep = document.getElementById('beep-sound');
+  const startBtn = document.getElementById('start-btn');
+  const stopBtn = document.getElementById('stop-btn');
+
+  let stream = null;
+  let detectionInterval = null;
+
+  const DROWSY_TIME = 5000; // ms total drowsy time to trigger beep
+  let totalDrowsyTime = 0; // cumulative drowsy time across starts/stops
+  let lastDrowsyTimestamp = null;
+  let isDrowsy = false;
+
+  // Helper: capture frame and send to backend
+  async function detectDrowsiness() {
+    if (!stream) return;
+    // Create a canvas to capture current frame from video
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 320;
+    canvas.height = video.videoHeight || 240;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+    const formData = new FormData();
+    formData.append('image', blob, 'frame.jpg');
+
+    try {
+      const res = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      const now = Date.now();
+
+      if (data.status === 'Drowsy') {
+        if (!isDrowsy) {
+          // Started being drowsy now
+          lastDrowsyTimestamp = now;
+          isDrowsy = true;
+        } else {
+          // Already drowsy, update total drowsy time
+          totalDrowsyTime += now - lastDrowsyTimestamp;
+          lastDrowsyTimestamp = now;
+        }
+      } else {
+        // Awake detected, reset drowsy timing
+        isDrowsy = false;
+        lastDrowsyTimestamp = null;
+      }
+
+      statusDiv.textContent = `Status: ${data.status}`;
+      confidenceDiv.textContent = `Confidence: ${data.confidence.toFixed(2)}%`;
+
+      // Play beep if total drowsy time >= threshold
+      if (totalDrowsyTime >= DROWSY_TIME) {
+        if (beep.paused) {
+          beep.play();
+        }
+      } else {
+        beep.pause();
+        beep.currentTime = 0;
+      }
+    } catch (err) {
+      console.error('Error detecting drowsiness:', err);
+      statusDiv.textContent = 'Status: Error';
+    }
+  }
+
+  async function startDetection() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      video.srcObject = stream;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      detectionInterval = setInterval(detectDrowsiness, 500); // Check every 500ms
+      statusDiv.textContent = 'Status: Starting...';
+    } catch (err) {
+      alert('Could not access webcam: ' + err.message);
+    }
+  }
+
+  function stopDetection() {
+    if (detectionInterval) {
+      clearInterval(detectionInterval);
+      detectionInterval = null;
+    }
+    if (stream) {
+      // Stop all video tracks to turn off webcam
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    statusDiv.textContent = 'Status: Stopped';
+
+    // On stopping webcam, we continue to keep the drowsy timer intact,
+    // so if total drowsy time is >= 5s, beep continues.
+    if (totalDrowsyTime >= DROWSY_TIME) {
+      if (beep.paused) beep.play();
+    } else {
+      beep.pause();
+      beep.currentTime = 0;
+    }
+  }
+
+  startBtn.addEventListener('click', startDetection);
+  stopBtn.addEventListener('click', stopDetection);
+</script>
+
+</body>
+</html>

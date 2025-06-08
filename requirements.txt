@@ -1,0 +1,8 @@
+flask
+opencv-python-headless
+tensorflow
+cmake
+dlib==19.24.1
+scipy
+numpy
+gunicorn
