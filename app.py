@@ -79,24 +79,28 @@
 # if __name__ == "__main__":
 #     app.run(host="0.0.0.0", port=5000)
 
-
 from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
+import time
 
 app = Flask(__name__)
 
-# Load your CNN model
 model = load_model("scripts/models/drowsiness_model.h5")
+
+last_drowsy_start = None
+DROWSY_ALERT_DELAY = 5  # seconds
 
 @app.route('/')
 def index():
-    return app.send_static_file('index.html')  # Serve frontend if you have one
+    return app.send_static_file('index.html')
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    global last_drowsy_start
+
     if 'image' not in request.files:
         return jsonify({'error': 'No image uploaded'}), 400
 
@@ -105,7 +109,6 @@ def predict():
     npimg = np.frombuffer(img_bytes, np.uint8)
     frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    # Preprocess image for model
     face_crop = cv2.resize(frame, (64, 64))
     face_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
     face_crop = face_crop.astype("float32") / 255.0
@@ -117,7 +120,24 @@ def predict():
     confidence = float(prediction[predicted_index] * 100)
     final_status = "Drowsy" if predicted_index == 0 else "Awake"
 
-    return jsonify({'status': final_status, 'confidence': confidence})
+    current_time = time.time()
+    beep = False
+
+    if final_status == "Drowsy":
+        if last_drowsy_start is None:
+            last_drowsy_start = current_time
+        elif (current_time - last_drowsy_start) >= DROWSY_ALERT_DELAY:
+            beep = True
+    else:
+        # User is awake → reset timer and beep
+        last_drowsy_start = None
+        beep = False
+
+    return jsonify({
+        'status': final_status,
+        'confidence': confidence,
+        'beep': beep
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
